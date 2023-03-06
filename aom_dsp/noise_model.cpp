@@ -387,7 +387,7 @@ int aom_noise_strength_solver_fit_piecewise(
     max_output_points = solver->num_bins;
   }
 
-  double *residual = aom_malloc(solver->num_bins * sizeof(*residual));
+  double *residual = (double*)aom_malloc(solver->num_bins * sizeof(*residual));
   if (!residual) {
     aom_noise_strength_lut_free(lut);
     return 0;
@@ -554,6 +554,26 @@ static int compare_scores(const void *a, const void *b) {
   return 0;
 }
 
+static AOM_FORCE_INLINE void aom_update_mean_var(const int block_size, double block[], double &Gxx, double &Gxy, double &Gyy, double &mean, double &var) {
+  for (int yi = 1; yi < block_size - 1; ++yi) {
+    for (int xi = 1; xi < block_size - 1; ++xi) {
+      const double gx = (block[yi * block_size + xi + 1] -
+                        block[yi * block_size + xi - 1]) /
+                        2;
+      const double gy = (block[yi * block_size + xi + block_size] -
+                        block[yi * block_size + xi - block_size]) /
+                        2;
+      Gxx += gx * gx;
+      Gxy += gx * gy;
+      Gyy += gy * gy;
+
+      const double value = block[yi * block_size + xi];
+      mean += value;
+      var += value * value;
+    }
+  }
+}
+
 int aom_flat_block_finder_run(const aom_flat_block_finder_t *block_finder,
                               const uint8_t *const data, int w, int h,
                               int stride, uint8_t *flat_blocks) {
@@ -593,28 +613,12 @@ int aom_flat_block_finder_run(const aom_flat_block_finder_t *block_finder,
       double Gxx = 0, Gxy = 0, Gyy = 0;
       double var = 0;
       double mean = 0;
-      int xi, yi;
       aom_flat_block_finder_extract_block(block_finder, data, w, h, stride,
                                           bx * block_size, by * block_size,
                                           plane, block);
 
-      for (yi = 1; yi < block_size - 1; ++yi) {
-        for (xi = 1; xi < block_size - 1; ++xi) {
-          const double gx = (block[yi * block_size + xi + 1] -
-                             block[yi * block_size + xi - 1]) /
-                            2;
-          const double gy = (block[yi * block_size + xi + block_size] -
-                             block[yi * block_size + xi - block_size]) /
-                            2;
-          Gxx += gx * gx;
-          Gxy += gx * gy;
-          Gyy += gy * gy;
+      aom_update_mean_var(block_size, block, Gxx, Gxy, Gyy, mean, var);
 
-          const double value = block[yi * block_size + xi];
-          mean += value;
-          var += value * value;
-        }
-      }
       mean /= (block_size - 2) * (block_size - 2);
 
       // Normalize gradients by block_size.
@@ -1531,12 +1535,12 @@ struct aom_denoise_and_model_t *aom_denoise_and_model_alloc(int bit_depth,
   ctx->noise_level = noise_level;
   ctx->bit_depth = bit_depth;
 
-  ctx->noise_psd[0] =
+  ctx->noise_psd[0] = (float*)
       aom_malloc(sizeof(*ctx->noise_psd[0]) * block_size * block_size);
   ctx->noise_psd[1] =
-      aom_malloc(sizeof(*ctx->noise_psd[1]) * block_size * block_size);
+      (float*)aom_malloc(sizeof(*ctx->noise_psd[1]) * block_size * block_size);
   ctx->noise_psd[2] =
-      aom_malloc(sizeof(*ctx->noise_psd[2]) * block_size * block_size);
+      (float*)aom_malloc(sizeof(*ctx->noise_psd[2]) * block_size * block_size);
   if (!ctx->noise_psd[0] || !ctx->noise_psd[1] || !ctx->noise_psd[2]) {
     fprintf(stderr, "Unable to allocate noise PSD buffers\n");
     aom_denoise_and_model_free(ctx);
@@ -1576,16 +1580,16 @@ static int denoise_and_model_realloc_if_necessary(
   aom_free(ctx->flat_blocks);
   ctx->flat_blocks = NULL;
 
-  ctx->denoised[0] = aom_malloc((sd->y_stride * sd->y_height) << use_highbd);
-  ctx->denoised[1] = aom_malloc((sd->uv_stride * sd->uv_height) << use_highbd);
-  ctx->denoised[2] = aom_malloc((sd->uv_stride * sd->uv_height) << use_highbd);
+  ctx->denoised[0] = (uint8_t*)aom_malloc((sd->y_stride * sd->y_height) << use_highbd);
+  ctx->denoised[1] = (uint8_t*)aom_malloc((sd->uv_stride * sd->uv_height) << use_highbd);
+  ctx->denoised[2] = (uint8_t*)aom_malloc((sd->uv_stride * sd->uv_height) << use_highbd);
   if (!ctx->denoised[0] || !ctx->denoised[1] || !ctx->denoised[2]) {
     fprintf(stderr, "Unable to allocate denoise buffers\n");
     return 0;
   }
   ctx->num_blocks_w = (sd->y_width + ctx->block_size - 1) / ctx->block_size;
   ctx->num_blocks_h = (sd->y_height + ctx->block_size - 1) / ctx->block_size;
-  ctx->flat_blocks = aom_malloc(ctx->num_blocks_w * ctx->num_blocks_h);
+  ctx->flat_blocks = (uint8_t*)aom_malloc(ctx->num_blocks_w * ctx->num_blocks_h);
   if (!ctx->flat_blocks) {
     fprintf(stderr, "Unable to allocate flat_blocks buffer\n");
     return 0;
