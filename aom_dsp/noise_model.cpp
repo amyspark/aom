@@ -567,9 +567,9 @@ static AOM_FORCE_INLINE void aom_update_mean_var(const int block_size, double bl
       Gxy += gx * gy;
       Gyy += gy * gy;
 
-      const double value = block[yi * block_size + xi];
-      mean += value;
-      var += value * value;
+      //const double value = block[yi * block_size + xi];
+      mean += block[yi * block_size + xi];
+      var += block[yi * block_size + xi] * block[yi * block_size + xi];
     }
   }
 }
